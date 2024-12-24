@@ -7,43 +7,44 @@ from respiration_signal import extract_respiratory_signal
 from rppg_signal import extract_rppg_signal, filter_rppg_signal, analyze_rppg_signal
 from scipy.fftpack import fft
 from scipy.signal import butter, filtfilt
+import csv
 
 def analyze_signal(signal, fs):
     """
-    Analyzes the given signal to extract relevant metrics such as frequency.
+    Menganalisis sinyal yang diberikan untuk mengekstrak metrik yang relevan seperti frekuensi.
 
-    Parameters:
-        signal (numpy.ndarray): The input signal to analyze.
-        fs (float): The sampling rate of the signal.
+    Parameter:
+        signal (numpy.ndarray): Sinyal input yang akan dianalisis.
+        fs (float): Sampling rate dari sinyal.
 
-    Returns:
-        dict: A dictionary containing analyzed metrics such as frequency.
+    Mengembalikan:
+        dict: Sebuah kamus yang berisi metrik yang dianalisis seperti frekuensi.
     """
     N = len(signal)
-    if N < 256:  # Ensure the signal length is sufficient for FFT
+    if N < 256:  # Pastikan panjang sinyal cukup untuk FFT
         return {'peak_frequency': 0.0, 'bpm': 0.0}
 
-    # Normalize the signal
+    # Normalisasi sinyal
     signal = signal - np.mean(signal)
 
-    freqs = np.fft.fftfreq(N, 1/fs)
-    fft_values = np.abs(fft(signal))
+    frekuensi = np.fft.fftfreq(N, 1/fs)
+    nilai_fft = np.abs(fft(signal))
 
-    # Find the peak frequency
-    peak_freq = freqs[np.argmax(fft_values)]
+    # Temukan frekuensi puncak
+    frekuensi_puncak = frekuensi[np.argmax(nilai_fft)]
     
-    # Ensure the peak frequency is positive
-    if peak_freq < 0:
-        peak_freq = -peak_freq
+    # Pastikan frekuensi puncak positif
+    if frekuensi_puncak < 0:
+        frekuensi_puncak = -frekuensi_puncak
     
-    # Convert peak frequency to beats per minute (BPM)
-    bpm = peak_freq * 60.0
+    # Konversi frekuensi puncak ke detak per menit (BPM)
+    bpm = frekuensi_puncak * 60.0
 
-    metrics = {
-        'peak_frequency': peak_freq,
+    metrik = {
+        'peak_frequency': frekuensi_puncak,
         'bpm': bpm
     }
-    return metrics
+    return metrik
 
 def butter_lowpass(cutoff, fs, order=5):
     nyq = 0.5 * fs
@@ -56,8 +57,29 @@ def lowpass_filter(data, cutoff, fs, order=5):
     y = filtfilt(b, a, data)
     return y
 
+def save_analysis_results(respiratory_metrics, rppg_metrics, respiratory_signals, rppg_signals):
+    with open('analysis_results.txt', 'w') as f:
+        f.write(f"Respiratory Metrics: {respiratory_metrics}\n")
+        f.write(f"rPPG Metrics: {rppg_metrics}\n")
+        f.write(f"Heart Rate: {rppg_metrics['heart_rate']} bpm\n")
+        f.write(f"Respiratory Signal Values: {respiratory_signals[:10]}\n")
+        f.write(f"rPPG Signal Values: {rppg_signals[:10]}\n")
+
+    with open('analysis_results.csv', 'w', newline='') as csvfile:
+        fieldnames = ['Respiratory Metrics', 'rPPG Metrics', 'Heart Rate', 'Respiratory Signal Values', 'rPPG Signal Values']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+        writer.writeheader()
+        writer.writerow({
+            'Respiratory Metrics': respiratory_metrics,
+            'rPPG Metrics': rppg_metrics,
+            'Heart Rate': rppg_metrics['heart_rate'],
+            'Respiratory Signal Values': respiratory_signals[:10],
+            'rPPG Signal Values': rppg_signals[:10]
+        })
+
 def main():
-    # Initialize webcam feed
+    # Inisialisasi feed webcam
     cap = cv2.VideoCapture(0)
 
     if not cap.isOpened():
@@ -68,7 +90,7 @@ def main():
     rppg_signals = []
     frames = []
 
-    plt.ion()  # Turn on interactive mode
+    plt.ion()  # Aktifkan mode interaktif
     fig = Figure(figsize=(8, 6))
     canvas = FigureCanvas(fig)
     gs = fig.add_gridspec(2, 1, height_ratios=[1, 1])
@@ -88,25 +110,25 @@ def main():
 
     try:
         while True:
-            # Capture frame-by-frame
+            # Tangkap frame demi frame
             ret, frame = cap.read()
             if not ret:
                 print("Error: Could not read frame.")
                 break
 
-            # Append frame to the list
+            # Tambahkan frame ke daftar
             frames.append(frame)
 
-            # Process the frames to extract respiratory and rPPG signals
-            if len(frames) >= 30:  # Process every 30 frames
+            # Proses frame untuk mengekstrak sinyal pernapasan dan rPPG
+            if len(frames) >= 30:  # Proses setiap 30 frame
                 respiratory_signal = extract_respiratory_signal(frames)
-                respiratory_signals.extend(respiratory_signal)  # Flatten the list
-                frames = []  # Clear frames after processing
+                respiratory_signals.extend(respiratory_signal)  # Rata-rata daftar
+                frames = []  # Hapus frame setelah diproses
 
             rppg_signal = extract_rppg_signal(frame)
             rppg_signals.append(rppg_signal)
 
-            # Update the plots
+            # Perbarui plot
             respiratory_line.set_data(range(len(respiratory_signals)), respiratory_signals)
             rppg_line.set_data(range(len(rppg_signals)), rppg_signals)
             ax1.relim()
@@ -115,31 +137,31 @@ def main():
             ax2.autoscale_view()
             canvas.draw()
 
-            # Convert plot to image
+            # Konversi plot ke gambar
             plot_img = np.frombuffer(canvas.tostring_argb(), dtype=np.uint8)
             plot_img = plot_img.reshape(canvas.get_width_height()[::-1] + (4,))
-            plot_img = plot_img[:, :, [1, 2, 3]]  # Convert ARGB to RGB
+            plot_img = plot_img[:, :, [1, 2, 3]]  # Konversi ARGB ke RGB
 
-            # Resize plot image to match webcam frame height
+            # Ubah ukuran gambar plot agar sesuai dengan tinggi frame webcam
             plot_img_resized = cv2.resize(plot_img, (int(plot_img.shape[1] * frame.shape[0] / plot_img.shape[0]), frame.shape[0]))
 
-            # Combine webcam feed and plot
+            # Gabungkan feed webcam dan plot
             combined_img = np.hstack((frame, plot_img_resized))
 
-            # Display the combined image
+            # Tampilkan gambar gabungan
             cv2.imshow('Project', combined_img)
 
-            # Break the loop on 'q' key press
+            # Hentikan loop dengan menekan tombol 'q'
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
     finally:
-        # Release the webcam and close windows
+        # Lepaskan webcam dan tutup jendela
         cap.release()
         cv2.destroyAllWindows()
-        plt.ioff()  # Turn off interactive mode
+        plt.ioff()  # Matikan mode interaktif
 
-        # Plot the final signals
+        # Plot sinyal akhir
         plt.figure(figsize=(12, 6))
         plt.subplot(2, 1, 1)
         plt.plot(respiratory_signals, label='Respiratory Signal')
@@ -156,9 +178,13 @@ def main():
         plt.legend()
 
         plt.tight_layout()
+        
+        # Simpan figure sebagai file gambar
+        plt.savefig('output_figure.png')
+
         plt.show()
 
-        # Analyze the signals
+        # Analisis sinyal
         fs = 30.0  # Sampling rate
         respiratory_metrics = analyze_signal(respiratory_signals, fs)
         filtered_rppg_signals = filter_rppg_signal(np.array(rppg_signals), lowcut=0.7, highcut=2.5, fs=fs)
@@ -167,12 +193,15 @@ def main():
         print("Respiratory Metrics:", respiratory_metrics)
         print("rPPG Metrics:", rppg_metrics)
 
-        # Print heart rate
+        # Cetak detak jantung
         print(f"Heart Rate: {rppg_metrics['heart_rate']} bpm")
 
-        # Print some values of the signals for debugging
+        # Cetak beberapa nilai sinyal untuk debugging
         print("Respiratory Signal Values:", respiratory_signals[:10])
         print("rPPG Signal Values:", rppg_signals[:10])
+
+        # Simpan hasil analisis ke file
+        save_analysis_results(respiratory_metrics, rppg_metrics, respiratory_signals, rppg_signals)
 
 if __name__ == "__main__":
     main()
